@@ -12,11 +12,14 @@
 #define SERIAL_PORT_SERIAL_PORT_H
 
 // System headers
+#include <span>
 #include <string>
 #include <fstream> // For file I/O (reading/writing to COM port)
 #include <sstream>
 // #include <termios.h> // POSIX terminal control definitions (struct termios)
 // #include <asm/termios.h> // Terminal control definitions (struct termios)
+#include <sys/ioctl.h>
+#include <unistd.h>
 #include <vector>
 #include <asm/ioctls.h>
 #include <asm/termbits.h>
@@ -189,9 +192,55 @@ namespace mn {
             ///             std::system_error() if device has been disconnected.
             void ReadBinary(std::vector<uint8_t>& data);
 
-            /// \brief		Use to get number of bytes available in receive buffer.
+          
+
+            /// \brief      Use to read binary data from the COM port. Blocking nature depends on SetTimeout().
+            /// \param      data        The read bytes from the COM port will be appended to this vector.
+            /// \note       Use Read() if you want to interpret received data as a string.
+            /// \throws     CppLinuxSerial::Exception if state != OPEN.
+            ///             std::system_error() if device has been disconnected.
+            void PushBackBinary(std::ranges::range  auto &range)
+            {
+
+                PortIsOpened(__PRETTY_FUNCTION__);
+
+                // Read from file
+                // We provide the underlying raw array from the readBuffer_ vector to this C api.
+                // This will work because we do not delete/resize the vector while this method
+                // is called
+                ssize_t n = read(fileDesc_, &readBuffer_[0], readBufferSize_B_);
+
+                // Error Handling
+                if (n < 0)
+                {
+                    // Read was unsuccessful
+                    throw std::system_error(EFAULT, std::system_category());
+                }
+                else if (n == 0)
+                {
+                    // n == 0 means EOS, but also returned on device disconnection. We try to get termios2 to distinguish two these two states
+                    struct termios2 term2;
+                    int rv = ioctl(fileDesc_, TCGETS2, &term2);
+
+                    if (rv != 0)
+                    {
+                        throw std::system_error(EFAULT, std::system_category());
+                    }
+                }
+                else if (n > 0)
+                {
+                    std::copy(readBuffer_.begin(), readBuffer_.begin() + n, std::back_inserter(range));
+                }
+            
+
+
+            }
+
+
+                /// \brief		Use to get number of bytes available in receive buffer.
             /// \returns    The number of bytes available in the receive buffer (ready to be read).
             /// \throws		CppLinuxSerial::Exception if state != OPEN.
+
             int32_t Available();
 
             /// \brief          Use to get the state of the serial port

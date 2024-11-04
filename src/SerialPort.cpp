@@ -8,33 +8,34 @@
 //!             See README.rst in repo root dir for more info.
 
 // System includes
+#include <errno.h> // Error number definitions
+#include <fcntl.h> // File control definitions
 #include <iostream>
 #include <sstream>
-#include <stdio.h>      // Standard input/output definitions
-#include <string.h>     // String function definitions
-#include <unistd.h>     // UNIX standard function definitions
-#include <fcntl.h>      // File control definitions
-#include <errno.h>      // Error number definitions
+#include <stdio.h>  // Standard input/output definitions
+#include <string.h> // String function definitions
+#include <unistd.h> // UNIX standard function definitions
 // #include <termios.h>     // POSIX terminal control definitions (struct termios)
-#include <system_error>	// For throwing std::system_error
-#include <sys/ioctl.h> // Used for TCGETS2, which is required for custom baud rates
 #include <cassert>
+#include <sys/ioctl.h>  // Used for TCGETS2, which is required for custom baud rates
+#include <system_error> // For throwing std::system_error
 // #include <asm/termios.h> // Terminal control definitions (struct termios)
+#include <algorithm>
 #include <asm/ioctls.h>
 #include <asm/termbits.h>
-#include <algorithm>
 #include <iterator>
 
 // User includes
 #include "CppLinuxSerial/Exception.hpp"
 #include "CppLinuxSerial/SerialPort.hpp"
 
-#define    BOTHER 0010000
+// #define    BOTHER 0010000
 
-namespace mn {
-namespace CppLinuxSerial {
+namespace mn::CppLinuxSerial
+{
 
-    SerialPort::SerialPort() {
+    SerialPort::SerialPort()
+    {
         echo_ = false;
         timeout_ms_ = defaultTimeout_ms_;
         baudRateType_ = BaudRateType::STANDARD;
@@ -44,22 +45,25 @@ namespace CppLinuxSerial {
         state_ = State::CLOSED;
     }
 
-    SerialPort::SerialPort(const std::string& device, BaudRate baudRate) :
-            SerialPort() {
+    SerialPort::SerialPort(const std::string& device, BaudRate baudRate)
+        : SerialPort()
+    {
         device_ = device;
         baudRateType_ = BaudRateType::STANDARD;
         baudRateStandard_ = baudRate;
     }
 
-    SerialPort::SerialPort(const std::string& device, speed_t baudRate) :
-            SerialPort() {
+    SerialPort::SerialPort(const std::string& device, speed_t baudRate)
+        : SerialPort()
+    {
         device_ = device;
         baudRateType_ = BaudRateType::CUSTOM;
         baudRateCustom_ = baudRate;
     }
 
-    SerialPort::SerialPort(const std::string& device, BaudRate baudRate, NumDataBits numDataBits, Parity parity, NumStopBits numStopBits) :
-            SerialPort() {
+    SerialPort::SerialPort(const std::string& device, BaudRate baudRate, NumDataBits numDataBits, Parity parity, NumStopBits numStopBits)
+        : SerialPort()
+    {
         device_ = device;
         baudRateType_ = BaudRateType::STANDARD;
         baudRateStandard_ = baudRate;
@@ -68,9 +72,10 @@ namespace CppLinuxSerial {
         numStopBits_ = numStopBits;
     }
 
-    SerialPort::SerialPort(const std::string &device, BaudRate baudRate, NumDataBits numDataBits, Parity parity, NumStopBits numStopBits,
-        HardwareFlowControl hardwareFlowControl, SoftwareFlowControl softwareFlowControl):
-            SerialPort() {
+    SerialPort::SerialPort(const std::string& device, BaudRate baudRate, NumDataBits numDataBits, Parity parity, NumStopBits numStopBits,
+        HardwareFlowControl hardwareFlowControl, SoftwareFlowControl softwareFlowControl)
+        : SerialPort()
+    {
         device_ = device;
         baudRateType_ = BaudRateType::STANDARD;
         baudRateStandard_ = baudRate;
@@ -81,68 +86,80 @@ namespace CppLinuxSerial {
         softwareFlowControl_ = softwareFlowControl;
     }
 
-    SerialPort::~SerialPort() {
-        try {
+    SerialPort::~SerialPort()
+    {
+        try
+        {
             Close();
-        } catch(...) {
+        }
+        catch (...)
+        {
             // We can't do anything about this!
             // But we don't want to throw within destructor, so swallow
         }
     }
 
-    void SerialPort::SetDevice(const std::string& device) {
+    void SerialPort::SetDevice(const std::string& device)
+    {
         device_ = device;
-        if(state_ == State::OPEN)
+        if (state_ == State::OPEN)
             ConfigureTermios();
     }
 
-    void SerialPort::SetBaudRate(BaudRate baudRate) {
+    void SerialPort::SetBaudRate(BaudRate baudRate)
+    {
         baudRateType_ = BaudRateType::STANDARD;
         baudRateStandard_ = baudRate;
-        if(state_ == State::OPEN)
+        if (state_ == State::OPEN)
             ConfigureTermios();
     }
 
-    void SerialPort::SetBaudRate(speed_t baudRate) {
+    void SerialPort::SetBaudRate(speed_t baudRate)
+    {
         baudRateType_ = BaudRateType::CUSTOM;
         baudRateCustom_ = baudRate;
-        if(state_ == State::OPEN)
+        if (state_ == State::OPEN)
             ConfigureTermios();
     }
 
-    void SerialPort::SetNumDataBits(NumDataBits numDataBits) {
+    void SerialPort::SetNumDataBits(NumDataBits numDataBits)
+    {
         numDataBits_ = numDataBits;
-        if(state_ == State::OPEN)
+        if (state_ == State::OPEN)
             ConfigureTermios();
     }
 
-    void SerialPort::SetParity(Parity parity) {
+    void SerialPort::SetParity(Parity parity)
+    {
         parity_ = parity;
-        if(state_ == State::OPEN)
+        if (state_ == State::OPEN)
             ConfigureTermios();
     }
 
-    void SerialPort::SetNumStopBits(NumStopBits numStopBits) {
+    void SerialPort::SetNumStopBits(NumStopBits numStopBits)
+    {
         numStopBits_ = numStopBits;
-        if(state_ == State::OPEN)
+        if (state_ == State::OPEN)
             ConfigureTermios();
     }
 
     void SerialPort::Open()
     {
-        if(device_.empty()) {
+        if (device_.empty())
+        {
             THROW_EXCEPT("Attempted to open file when file path has not been assigned to.");
         }
 
         // Attempt to open file
-        //this->fileDesc = open(this->filePath, O_RDWR | O_NOCTTY | O_NDELAY);
+        // this->fileDesc = open(this->filePath, O_RDWR | O_NOCTTY | O_NDELAY);
 
         // O_RDONLY for read-only, O_WRONLY for write only, O_RDWR for both read/write access
         // 3rd, optional parameter is mode_t mode
         fileDesc_ = open(device_.c_str(), O_RDWR);
 
         // Check status
-        if(fileDesc_ == -1) {
+        if (fileDesc_ == -1)
+        {
             THROW_EXCEPT("Could not open device \"" + device_ + "\". Is the device name correct and do you have read/write permissions?");
         }
 
@@ -152,7 +169,8 @@ namespace CppLinuxSerial {
         state_ = State::OPEN;
     }
 
-    void SerialPort::SetEcho(bool value) {
+    void SerialPort::SetEcho(bool value)
+    {
         echo_ = value;
         ConfigureTermios();
     }
@@ -168,57 +186,60 @@ namespace CppLinuxSerial {
 
         // Set num. data bits
         // See https://man7.org/linux/man-pages/man3/tcflush.3.html
-        tty.c_cflag     &=  ~CSIZE;			// CSIZE is a mask for the number of bits per character
-        switch(numDataBits_) {
+        tty.c_cflag &= ~CSIZE; // CSIZE is a mask for the number of bits per character
+        switch (numDataBits_)
+        {
             case NumDataBits::FIVE:
-                tty.c_cflag     |=  CS5;
+                tty.c_cflag |= CS5;
                 break;
             case NumDataBits::SIX:
-                tty.c_cflag     |=  CS6;
+                tty.c_cflag |= CS6;
                 break;
             case NumDataBits::SEVEN:
-                tty.c_cflag     |=  CS7;
+                tty.c_cflag |= CS7;
                 break;
             case NumDataBits::EIGHT:
-                tty.c_cflag     |=  CS8;
+                tty.c_cflag |= CS8;
                 break;
             default:
                 THROW_EXCEPT("numDataBits_ value not supported!");
         }
-        
+
         // Set parity
         // See https://man7.org/linux/man-pages/man3/tcflush.3.html
-        switch(parity_) {
+        switch (parity_)
+        {
             case Parity::NONE:
-                tty.c_cflag     &=  ~PARENB;
+                tty.c_cflag &= ~PARENB;
                 break;
-            case Parity::EVEN:	
-                tty.c_cflag 	|=   PARENB;
-                tty.c_cflag		&=	 ~PARODD; // Clearing PARODD makes the parity even
+            case Parity::EVEN:
+                tty.c_cflag |= PARENB;
+                tty.c_cflag &= ~PARODD; // Clearing PARODD makes the parity even
                 break;
             case Parity::ODD:
-                tty.c_cflag     |=   PARENB;
-                tty.c_cflag		|=	 PARODD;
+                tty.c_cflag |= PARENB;
+                tty.c_cflag |= PARODD;
                 break;
             default:
                 THROW_EXCEPT("parity_ value not supported!");
-
         }
 
         // Set num. stop bits
-        switch(numStopBits_) {
+        switch (numStopBits_)
+        {
             case NumStopBits::ONE:
-                tty.c_cflag     &=  ~CSTOPB;
+                tty.c_cflag &= ~CSTOPB;
                 break;
             case NumStopBits::TWO:
-                tty.c_cflag     |=  CSTOPB;
+                tty.c_cflag |= CSTOPB;
                 break;
             default:
                 THROW_EXCEPT("numStopBits_ value not supported!");
         }
 
         // Configure flow control
-        switch(hardwareFlowControl_){
+        switch (hardwareFlowControl_)
+        {
             case HardwareFlowControl::OFF:
                 tty.c_cflag &= ~CRTSCTS;
                 break;
@@ -233,8 +254,7 @@ namespace CppLinuxSerial {
                 break;
         }
 
-        tty.c_cflag     |=  CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
-
+        tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
 
         //===================== BAUD RATE =================//
 
@@ -242,10 +262,12 @@ namespace CppLinuxSerial {
         // us to set custom baud rates. So now to support both standard and custom baud rates lets
         // just make everything "custom". This giant switch statement could be replaced with a map/lookup
         // in the future
-        if (baudRateType_ == BaudRateType::STANDARD) {
+        if (baudRateType_ == BaudRateType::STANDARD)
+        {
             tty.c_cflag &= ~CBAUD;
             tty.c_cflag |= CBAUDEX;
-            switch(baudRateStandard_) {
+            switch (baudRateStandard_)
+            {
                 case BaudRate::B_0:
                     // cfsetispeed(&tty, B0);
                     // cfsetospeed(&tty, B0);
@@ -380,7 +402,6 @@ namespace CppLinuxSerial {
             tty.c_ispeed = baudRateCustom_;
             tty.c_ospeed = baudRateCustom_;
 
-
             // #include <linux/serial.h>
             // // configure port to use custom speed instead of 38400
             // struct serial_struct ss;
@@ -406,8 +427,8 @@ namespace CppLinuxSerial {
 
         //===================== (.c_oflag) =================//
 
-        tty.c_oflag     =   0;              // No remapping, no delays
-        tty.c_oflag     &=  ~OPOST;         // Make raw
+        tty.c_oflag = 0;       // No remapping, no delays
+        tty.c_oflag &= ~OPOST; // Make raw
 
         //================= CONTROL CHARACTERS (.c_cc[]) ==================//
 
@@ -421,52 +442,60 @@ namespace CppLinuxSerial {
         // c_cc[WMIN] sets the number of characters to block (wait) for when read() is called.
         // Set to 0 if you don't want read to block. Only meaningful when port set to non-canonical mode
 
-        if(timeout_ms_ == -1) {
+        if (timeout_ms_ == -1)
+        {
             // Always wait for at least one byte, this could
             // block indefinitely
             tty.c_cc[VTIME] = 0;
             tty.c_cc[VMIN] = 1;
-        } else if(timeout_ms_ == 0) {
+        }
+        else if (timeout_ms_ == 0)
+        {
             // Setting both to 0 will give a non-blocking read
             tty.c_cc[VTIME] = 0;
             tty.c_cc[VMIN] = 0;
-        } else if(timeout_ms_ > 0) {
-            tty.c_cc[VTIME] = (cc_t)(timeout_ms_/100);    // 0.5 seconds read timeout
+        }
+        else if (timeout_ms_ > 0)
+        {
+            tty.c_cc[VTIME] = (cc_t)(timeout_ms_ / 100); // 0.5 seconds read timeout
             tty.c_cc[VMIN] = 0;
         }
 
         //======================== (.c_iflag) ====================//
 
-        switch(softwareFlowControl_){
+        switch (softwareFlowControl_)
+        {
             case SoftwareFlowControl::OFF:
                 tty.c_iflag &= ~(IXON | IXOFF | IXANY);
-            break;
+                break;
 
             case SoftwareFlowControl::ON:
                 tty.c_iflag |= (IXON | IXOFF | IXANY);
-            break;
+                break;
         }
-        
-        tty.c_iflag 	&= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL);
+
+        tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
 
         //=========================== LOCAL MODES (c_lflag) =======================//
 
         // Canonical input is when read waits for EOL or EOF characters before returning. In non-canonical mode, the rate at which
         // read() returns is instead controlled by c_cc[VMIN] and c_cc[VTIME]
-        tty.c_lflag		&= ~ICANON;    // Turn off canonical input, which is suitable for pass-through
+        tty.c_lflag &= ~ICANON; // Turn off canonical input, which is suitable for pass-through
         // Configure echo depending on echo_ boolean
-        if(echo_) {
+        if (echo_)
+        {
             tty.c_lflag |= ECHO;
-        } else {
+        }
+        else
+        {
             tty.c_lflag &= ~(ECHO);
         }
-        tty.c_lflag		&= ~ECHOE;     // Turn off echo erase (echo erase only relevant if canonical input is active)
-        tty.c_lflag		&= ~ECHONL;    //
-        tty.c_lflag		&= ~ISIG;      // Disables recognition of INTR (interrupt), QUIT and SUSP (suspend) characters
-
+        tty.c_lflag &= ~ECHOE;  // Turn off echo erase (echo erase only relevant if canonical input is active)
+        tty.c_lflag &= ~ECHONL; //
+        tty.c_lflag &= ~ISIG;   // Disables recognition of INTR (interrupt), QUIT and SUSP (suspend) characters
 
         // Try and use raw function call
-        //cfmakeraw(&tty);
+        // cfmakeraw(&tty);
 
         // this->SetTermios(tty);
         this->SetTermios2(tty);
@@ -483,29 +512,34 @@ namespace CppLinuxSerial {
         }*/
     }
 
-    void SerialPort::Write(const std::string& data) {
+    void SerialPort::Write(const std::string& data)
+    {
         PortIsOpened(__PRETTY_FUNCTION__);
 
         int writeResult = write(fileDesc_, data.c_str(), data.size());
 
         // Check status
-        if (writeResult == -1) {
+        if (writeResult == -1)
+        {
             throw std::system_error(EFAULT, std::system_category());
         }
     }
 
-    void SerialPort::WriteBinary(const std::vector<uint8_t>& data) {
+    void SerialPort::WriteBinary(const std::vector<uint8_t>& data)
+    {
         PortIsOpened(__PRETTY_FUNCTION__);
 
         int writeResult = write(fileDesc_, data.data(), data.size());
 
         // Check status
-        if (writeResult == -1) {
+        if (writeResult == -1)
+        {
             throw std::system_error(EFAULT, std::system_category());
         }
     }
 
-    void SerialPort::Read(std::string& data) {
+    void SerialPort::Read(std::string& data)
+    {
         PortIsOpened(__PRETTY_FUNCTION__);
 
         // Read from file
@@ -515,27 +549,35 @@ namespace CppLinuxSerial {
         ssize_t n = read(fileDesc_, &readBuffer_[0], readBufferSize_B_);
 
         // Error Handling
-        if(n < 0) {
+        if (n < 0)
+        {
             // Read was unsuccessful
             throw std::system_error(EFAULT, std::system_category());
         }
-        else if(n == 0) {
+        else if (n == 0)
+        {
             // n == 0 means EOS, but also returned on device disconnection. We try to get termios2 to distinguish two these two states
             struct termios2 term2;
             int rv = ioctl(fileDesc_, TCGETS2, &term2);
 
-            if(rv != 0) {
+            if (rv != 0)
+            {
                 throw std::system_error(EFAULT, std::system_category());
             }
         }
-        else if(n > 0) {
+        else if (n > 0)
+        {
             data += std::string(&readBuffer_[0], n);
         }
 
         // If code reaches here, read must of been successful
     }
 
-    void SerialPort::ReadBinary(std::vector<uint8_t>& data) {
+
+    
+
+    void SerialPort::ReadBinary(std::vector<uint8_t>& data)
+    {
         PortIsOpened(__PRETTY_FUNCTION__);
 
         // Read from file
@@ -545,18 +587,24 @@ namespace CppLinuxSerial {
         ssize_t n = read(fileDesc_, &readBuffer_[0], readBufferSize_B_);
 
         // Error Handling
-        if(n < 0) {
+        if (n < 0)
+        {
             // Read was unsuccessful
             throw std::system_error(EFAULT, std::system_category());
-        } else if(n == 0) {
+        }
+        else if (n == 0)
+        {
             // n == 0 means EOS, but also returned on device disconnection. We try to get termios2 to distinguish two these two states
             struct termios2 term2;
             int rv = ioctl(fileDesc_, TCGETS2, &term2);
 
-            if(rv != 0) {
+            if (rv != 0)
+            {
                 throw std::system_error(EFAULT, std::system_category());
             }
-        } else if(n > 0) {
+        }
+        else if (n > 0)
+        {
             std::copy(readBuffer_.begin(), readBuffer_.begin() + n, back_inserter(data));
         }
 
@@ -619,21 +667,26 @@ namespace CppLinuxSerial {
         ioctl(fileDesc_, TCSETS2, &tty);
     }
 
-    void SerialPort::PortIsOpened(const std::string& prettyFunc) {
+    void SerialPort::PortIsOpened(const std::string& prettyFunc)
+    {
 
-        if(state_ != State::OPEN) {
+        if (state_ != State::OPEN)
+        {
             THROW_EXCEPT(std::string() + prettyFunc + " called but state != OPEN. Please call Open() first.");
         }
 
-        if(fileDesc_ < 0) {
+        if (fileDesc_ < 0)
+        {
             THROW_EXCEPT(std::string() + prettyFunc + " called but file descriptor < 0, indicating file has not been opened.");
         }
     }
 
-    void SerialPort::Close() {
-        if(fileDesc_ != -1) {
+    void SerialPort::Close()
+    {
+        if (fileDesc_ != -1)
+        {
             auto retVal = close(fileDesc_);
-            if(retVal != 0)
+            if (retVal != 0)
                 THROW_EXCEPT("Tried to close serial port " + device_ + ", but close() failed.");
 
             fileDesc_ = -1;
@@ -642,27 +695,29 @@ namespace CppLinuxSerial {
         state_ = State::CLOSED;
     }
 
-    void SerialPort::SetTimeout(int32_t timeout_ms) {
-        if(timeout_ms < -1)
+    void SerialPort::SetTimeout(int32_t timeout_ms)
+    {
+        if (timeout_ms < -1)
             THROW_EXCEPT(std::string() + "timeout_ms provided to " + __PRETTY_FUNCTION__ + " was < -1, which is invalid.");
-        if(timeout_ms > 25500)
+        if (timeout_ms > 25500)
             THROW_EXCEPT(std::string() + "timeout_ms provided to " + __PRETTY_FUNCTION__ + " was > 25500, which is invalid.");
-        if(state_ == State::OPEN)
+        if (state_ == State::OPEN)
             THROW_EXCEPT(std::string() + __PRETTY_FUNCTION__ + " called while state == OPEN.");
         timeout_ms_ = timeout_ms;
     }
-    
-    int32_t SerialPort::Available() {
+
+    int32_t SerialPort::Available()
+    {
         PortIsOpened(__PRETTY_FUNCTION__);
 
         int32_t ret = 0;
         ioctl(fileDesc_, FIONREAD, &ret);
         return ret;
-        
-    }
-    State SerialPort::GetState() {
-      return state_;
     }
 
-} // namespace CppLinuxSerial
-} // namespace mn
+    State SerialPort::GetState()
+    {
+        return state_;
+    }
+
+} // namespace mn::CppLinuxSerial
